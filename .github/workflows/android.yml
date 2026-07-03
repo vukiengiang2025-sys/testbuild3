@@ -1,0 +1,90 @@
+name: Optimized Android CI/CD
+
+on:
+  push:
+    branches: [ "main", "master", "develop" ]
+  pull_request:
+    branches: [ "main", "master", "develop" ]
+  workflow_dispatch: # Allows manual trigger from GitHub UI
+
+jobs:
+  build:
+    name: Build & Release APK
+    runs-on: ubuntu-latest
+
+    env:
+      # Optimizing JVM Memory allocation for GitHub Actions runner (typically 7GB RAM limit)
+      GRADLE_OPTS: -Dorg.gradle.jvmargs="-Xmx3072m -XX:+UseParallelGC -XX:MaxMetaspaceSize=512m" -Dorg.gradle.workers.max=2
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Shallow clones are fast, but full fetch is best for version tracking
+
+      - name: Set up Java Development Kit (JDK)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu' # Highly stable and performant JDK distribution
+          java-version: '17'   # Matches modern Android SDK build requirements
+          cache: 'gradle'     # Automatic caching of gradle caches, wrappers, and metadata
+
+      # Secondary cache step to make absolutely sure build caches persist across runner instances
+      - name: Cache Build Cache Directory
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            .gradle/configuration-cache
+          key: ${{ runner.os }}-gradle-build-cache-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties', '**/libs.versions.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-build-cache-
+
+      - name: Grant Execute Permission to Gradle
+        run: chmod +x gradlew || true # Make sure gradle wrapper is executable if present
+
+      - name: Clean Project
+        run: ./gradlew clean --no-daemon
+
+      - name: Run Lint and Quality Checks
+        run: ./gradlew lintDebug --no-daemon --parallel --build-cache
+
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug --no-daemon --parallel --build-cache --configure-on-demand
+
+      - name: Build Release APK (Unsigned)
+        run: ./gradlew assembleRelease --no-daemon --parallel --build-cache --configure-on-demand
+
+      - name: Locate & Rename APKs
+        run: |
+          mkdir -p build-outputs
+          
+          # Find and copy debug APKs
+          find . -name "*debug.apk" -exec cp {} build-outputs/app-debug.apk \;
+          
+          # Find and copy release APKs
+          find . -name "*release-unsigned.apk" -o -name "*release.apk" | while read apk; do
+            if [[ "$apk" == *"release-unsigned"* ]]; then
+              cp "$apk" build-outputs/app-release-unsigned.apk
+            else
+              cp "$apk" build-outputs/app-release.apk
+            fi
+          done
+          
+          echo "Build files generated in build-outputs directory:"
+          ls -lh build-outputs/
+
+      - name: Upload Debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-debug-apk
+          path: build-outputs/app-debug.apk
+          retention-days: 7
+
+      - name: Upload Release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-release-apk
+          path: build-outputs/*release*.apk
+          retention-days: 14

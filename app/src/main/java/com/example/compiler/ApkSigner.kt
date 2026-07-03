@@ -1,75 +1,72 @@
 package com.example.compiler
 
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
 import android.util.Base64
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.math.BigInteger
 import java.security.KeyFactory
+import java.security.KeyPairGenerator
+import java.security.KeyStore
 import java.security.MessageDigest
 import java.security.PrivateKey
 import java.security.Signature
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
 import java.security.spec.PKCS8EncodedKeySpec
+import java.util.Calendar
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
+import javax.security.auth.x500.X500Principal
 
 object ApkSigner {
 
-    private const val PRIVATE_KEY_B64 = 
-        "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDLYTbXZkJCn7t98OrfXfMjkPz" +
-        "CZ5mSWMIwIuPCOfrcxQE/60kiD8od41S1WFGg0kQytbCYmoWDp89BM/q6yage9s3zyU9cAykyT1" +
-        "ii8Xdav2tOoAalwQ53ncJgs2deNopCUeDNtwi43f/IUaL+gSqj/2FNXFXYFxDT9UnUy5BgA2V52" +
-        "mOlEa/UE7We44JjlbvOqK/KNVCokGZmSDyiRFAprxYNQcXFW/S0V13l1Ga95I/h3dH/AZa1iUZn" +
-        "7oJb49vGcEV25dJh7SgtWpjVdmefjmY0OBjYLgwyOQC4kGr0FA6JP1Cvj5ozwckNGDVXIZ8EYfh" +
-        "7iL9i+hxGuiZ2FKsVAgMBAAECggEAASNtVKhTCkoYQ7yzpoYWmdDdG/4gyxkUa9jjeySq8E2+qO" +
-        "EZcDI0GJW7VXvbPRy1hVkkq2irWFDPUAHz+dQDd7o8Qzc8aqXujERgbne5NM3/J5oCtNkkn8Ecz" +
-        "kDC0oat9cVn447jjXFaAKuK+i9hPI4Yjn/L+ovVLB033r6NnilJe/rLX5chbXGCwPeEjX59WZkj" +
-        "lvxJOE2kd4r+Eg7EmpzY8uo0AIpndJOI89BE/nl6GwBz2RDFow2fu/KmjNo/RMgs0HdJUYf72j/" +
-        "E4Xe5V7KrtE83Sn4yM99hNDbpbB8bBl0fgkdE7AC52DFrd9phJL5yTi9wlMy8BU9htnP5wwKBgQ" +
-        "Dm1Zw9ouUqcYIsD7wSRCva9BGC0fRsfuWCgpuMHhvOH4mdHI5xPn7a5TTdr5oAiadxktHpy5TbM" +
-        "rAQYp4Krr78OXqZswvtTqsUgBR2LiveVmRFcDGMnNfvo3ApeRd9UH/lg/rD8VNOFnOfKSqh7Zat" +
-        "SWZ90o5gWh7HODfmDGarGwKBgQDhjV4ewuXobiBYfd3qeS0KUMUagXh19EK4Qn8EOZlzAKSOn6R" +
-        "iUGEdxv/vvkXulSVVzcjmj1fFhP4dFIPg0bDTqqh9X/x5JlrQ3kWyIc9DUjo/QMQuOSKumJ0N9u" +
-        "4S85TBhoCJ53K1Ec2/LHAUjzerCyyHITBFC+SlZXYF6FO1jwKBgHiD/daQPWUzberjLCW9QchGt" +
-        "P2/8ATVG65P0jYNYibzgD1us0+ceU5/bGJxU84EEE/Tf5S4nTbz98gWNL0PDtdQixnDyO5UrC0/" +
-        "0W8CHBUwtZkrQjNPj82lXuHIPuNGLAAAL+QtEnkqb6MhMwjnqks+jywRyhOz+W25hDWvM8sRAoG" +
-        "AZy3gTHoj6jvWmCScC9L7A6kHQaTQkkT28IuaxzgCNlWo8YWeEUtr4c9S7T1BiG658ZJ9wNr57+" +
-        "VyyaLE4WeLWIjNIu1x9YnSKZJEl8RXqBhJhP3/wJVqhCxUTDsVlZ3QAuegjXVPR/2o/Tc63mzVr" +
-        "m0iJX7NMgjKw86yOumYwYkCgYEAr/+06Gj8upyvPosj3rOnZRPZKMRkhEYWwVQW3GrcXTB4dMpJ" +
-        "R3fi6BfkwnAsSMmq27GaRQ87z1SC1FE9Z9gz2LHvxcxtiylCD7Fr5HvtK+tsOQOP7mFc9izbxZr" +
-        "RV2RAIYzAau+mxBYLzCruWLrTcT5goiSxmX1AQCR7h7y1Ylo="
-
-    private const val CERT_B64 = 
-        "MIIDCzCCAfOgAwIBAgIUCFoxHaMx38DLlLYdDjSQBxUwscEwDQYJKoZIhvcNAQELBQAwFTETMB" +
-        "EGA1UEAwwKQVBLQnVpbGRlcjAeFw0yNjA3MDMxNTA2NDJaFw0zNjA2MzAxNTA2NDJaMBUxEzAR" +
-        "BgNVBAMMCkFQS0J1aWxkZXIwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDLYTbXZk" +
-        "JCn7t98OrfXfMjkPzCZ5mSWMIwIuPCOfrcxQE/60kiD8od41S1WFGg0kQytbCYmoWDp89BM/q6" +
-        "yage9s3zyU9cAykyT1ii8Xdav2tOoAalwQ53ncJgs2deNopCUeDNtwi43f/IUaL+gSqj/2FNXF" +
-        "XYFxDT9UnUy5BgA2V52mOlEa/UE7We44JjlbvOqK/KNVCokGZmSDyiRFAprxYNQcXFW/S0V13l" +
-        "1Ga95I/h3dH/AZa1iUZn7oJb49vGcEV25dJh7SgtWpjVdmefjmY0OBjYLgwyOQC4kGr0FA6JP1" +
-        "Cvj5ozwckNGDVXIZ8EYfh7iL9i+hxGuiZ2FKsVAgMBAAGjUzBRMB0GA1UdDgQWBBRQ017ksNaj" +
-        "zRglU3BDAm8reqc64TAfBgNVHSMEGDAWgBRQ017ksNajzRglU3BDAm8reqc64TAPBgNVHRMBAf" +
-        "8EBTADAQH/MA0GCSqGSIb3DQEBCwUAA4IBAQC/jwFyXlJlQgqwqn6VKvdoBT3squLI3B19hinr" +
-        "VXr/D/c4A+rPnDrAYZ0oEVBfCSX2K6sQQ9yOSlzz+kHmd6beHVKgW/tootlEZ1nweBH1wNii8q" +
-        "IQY9YdtZSdnDpTvrjmQda9Y3vxYCoLTomGjiQM3EJW+bXZvjG/RrGI28kGBK7t1MjVi0vnutnf" +
-        "pm4Ja/UeNZxUpLjQCdidGhpD53QfYV1FGufD9ZAK9Vzcu/DZgQLbaWWAmiRFdqDFL4lqobjTmK" +
-        "jKeqp+JoV1ewhnS+0vXlcnGqdRcmin7JPAfDA8YBbgBUosbJaiu3WZlrgkHXK6OIRGg98tDbHs" +
-        "DgtRVBc"
+    private fun getOrCreateSigningKey(): Pair<PrivateKey, X509Certificate> {
+        val alias = "ApkBuilderSigningKey"
+        val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        
+        if (!keyStore.containsAlias(alias)) {
+            val kpg = KeyPairGenerator.getInstance(
+                KeyProperties.KEY_ALGORITHM_RSA,
+                "AndroidKeyStore"
+            )
+            val start = Calendar.getInstance()
+            val end = Calendar.getInstance().apply { add(Calendar.YEAR, 25) }
+            val spec = KeyGenParameterSpec.Builder(
+                alias,
+                KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY
+            )
+                .setCertificateSubject(X500Principal("CN=APK Builder, O=On-Device Signing"))
+                .setCertificateSerialNumber(BigInteger.ONE)
+                .setCertificateNotBefore(start.time)
+                .setCertificateNotAfter(end.time)
+                .setDigests(KeyProperties.DIGEST_SHA256)
+                .setSignaturePaddings(KeyProperties.SIGNATURE_PADDING_RSA_PKCS1)
+                .setKeySize(2048)
+                .build()
+            kpg.initialize(spec)
+            kpg.generateKeyPair()
+        }
+        
+        val privateKey = keyStore.getKey(alias, null) as PrivateKey
+        val cert = keyStore.getCertificate(alias) as X509Certificate
+        return Pair(privateKey, cert)
+    }
 
     fun signApk(unsignedApk: File, signedApk: File, onProgress: (String) -> Unit) {
-        onProgress("Đang khởi tạo chứng chỉ và chữ ký mật mã RSA-2048 + SHA-256...")
-        val privateKeyBytes = Base64.decode(PRIVATE_KEY_B64, Base64.DEFAULT)
-        val privateKeySpec = PKCS8EncodedKeySpec(privateKeyBytes)
-        val keyFactory = KeyFactory.getInstance("RSA")
-        val privateKey = keyFactory.generatePrivate(privateKeySpec)
+        onProgress("Đang kết nối Android Keystore bảo mật trên thiết bị...")
+        val (privateKey, cert) = try {
+            getOrCreateSigningKey()
+        } catch (e: Exception) {
+            throw IllegalStateException("Không thể kết nối hoặc khởi tạo khóa ký mật mã từ Android Keystore cục bộ: ${e.localizedMessage}. Đảm bảo thiết bị của bạn hỗ trợ các thuật toán mã hóa bảo mật phần cứng.", e)
+        }
 
-        val certBytes = Base64.decode(CERT_B64, Base64.DEFAULT)
-        val certFactory = CertificateFactory.getInstance("X.509")
-        val cert = certFactory.generateCertificate(ByteArrayInputStream(certBytes)) as X509Certificate
+        onProgress("Đang nạp thuật toán mật mã RSA-2048 + SHA-256 hoàn tất...")
 
         onProgress("Đang đọc các file trong APK không chữ ký...")
         val md = MessageDigest.getInstance("SHA-256")
@@ -90,15 +87,14 @@ object ApkSigner {
 
                         val buffer = ByteArray(4096)
                         var len: Int
-                        val entryOut = ByteArrayOutputStream()
+                        md.reset() // Ensure the message digest is fresh for each entry
                         while (zis.read(buffer).also { len = it } > 0) {
                             zos.write(buffer, 0, len)
-                            entryOut.write(buffer, 0, len)
+                            md.update(buffer, 0, len)
                         }
                         zos.closeEntry()
 
-                        val entryBytes = entryOut.toByteArray()
-                        val hashBytes = md.digest(entryBytes)
+                        val hashBytes = md.digest()
                         val hashB64 = Base64.encodeToString(hashBytes, Base64.NO_WRAP)
                         digests[name] = hashB64
                     }

@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
@@ -52,9 +54,9 @@ fun WorkspaceScreen(
     }
 
     // Editable text states
-    var configText by remember(project) { mutableStateOf(project!!.configJson) }
-    var kotlinText by remember(project) { mutableStateOf(project!!.codeKotlin) }
-    var xmlText by remember(project) { mutableStateOf(project!!.codeLayout) }
+    var configText by remember(project?.id) { mutableStateOf(project?.configJson ?: "") }
+    var kotlinText by remember(project?.id) { mutableStateOf(project?.codeKotlin ?: "") }
+    var xmlText by remember(project?.id) { mutableStateOf(project?.codeLayout ?: "") }
     
     val currentAppName by viewModel.customAppName.collectAsState()
     val currentPkgName by viewModel.customPackageName.collectAsState()
@@ -385,79 +387,21 @@ fun WorkspaceScreen(
                     val buildLogs by viewModel.buildLogs.collectAsState()
                     val isBuilding by viewModel.isBuilding.collectAsState()
                     val builtApk by viewModel.builtApkFile.collectAsState()
-                    val lazyListState = rememberLazyListState()
                     var isArchExpanded by remember { mutableStateOf(false) }
 
-                    // Auto-scroll build console to bottom
-                    LaunchedEffect(buildLogs.size) {
-                        if (buildLogs.isNotEmpty()) {
-                            lazyListState.animateScrollToItem(buildLogs.size - 1)
-                        }
-                    }
-
+                    val scrollState = rememberScrollState()
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
+                            .verticalScroll(scrollState)
                             .padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        // Terminal Display Box
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .weight(1f)
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(Color(0xFF07090E))
-                                .border(1.dp, Color(0xFF00FF88).copy(alpha = 0.15f), RoundedCornerShape(14.dp))
-                                .padding(12.dp)
-                        ) {
-                            if (buildLogs.isEmpty()) {
-                                Box(
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.Terminal,
-                                            contentDescription = null,
-                                            tint = Color.Gray,
-                                            modifier = Modifier.size(48.dp)
-                                        )
-                                        Spacer(modifier = Modifier.height(12.dp))
-                                        Text(
-                                            text = "Nhấn nút 'Build' ở góc trên để bắt đầu biên dịch dự án cục bộ.",
-                                            color = Color.Gray,
-                                            fontSize = 13.sp,
-                                            textAlign = TextAlign.Center,
-                                            modifier = Modifier.padding(horizontal = 24.dp)
-                                        )
-                                    }
-                                }
-                            } else {
-                                LazyColumn(
-                                    state = lazyListState,
-                                    modifier = Modifier.fillMaxSize(),
-                                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    items(buildLogs) { log ->
-                                        val isHeader = log.contains("KHỞI ĐỘNG") || log.contains("HOÀN TẤT THÀNH CÔNG")
-                                        val isError = log.contains("LỖI")
-                                        val color = when {
-                                            isHeader -> Color(0xFF00FF88)
-                                            isError -> Color(0xFFFF5252)
-                                            else -> Color(0xFFE0E0E0)
-                                        }
-                                        Text(
-                                            text = log,
-                                            color = color,
-                                            fontFamily = FontFamily.Monospace,
-                                            fontSize = 11.sp,
-                                            fontWeight = if (isHeader) FontWeight.Bold else FontWeight.Normal
-                                        )
-                                    }
-                                }
-                            }
-                        }
+                        BuildStatusLogger(
+                            buildLogs = buildLogs,
+                            isBuilding = isBuilding,
+                            builtApkFileExists = builtApk != null && builtApk!!.exists()
+                        )
 
                         // System Architecture Insights (Expandable Panel)
                         Card(

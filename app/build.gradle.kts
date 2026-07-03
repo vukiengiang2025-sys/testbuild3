@@ -16,7 +16,7 @@ android {
   defaultConfig {
     applicationId = "com.aistudio.apkbuilder.xypqrs"
     minSdk = 24
-    targetSdk = 36
+    targetSdk = 29
     versionCode = 1
     versionName = "1.0"
 
