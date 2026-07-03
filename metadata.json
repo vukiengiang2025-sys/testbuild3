@@ -1,0 +1,6 @@
+{
+  "name": "APK Builder Studio Workspace Pro",
+  "description": "Ứng dụng build APK trực tiếp trên di động offline một cách trực quan, riêng tư và nhanh chóng.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
