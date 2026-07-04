@@ -1,0 +1,4 @@
+# Mark gradle-wrapper.jar and all jar files as binary to prevent corruption during Git operations
+*.jar binary
+/gradlew text eol=lf
+/gradlew.bat text eol=crlf

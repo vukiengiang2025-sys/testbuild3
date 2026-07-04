@@ -29,17 +29,13 @@ jobs:
           java-version: '17'   # Matches modern Android SDK build requirements
           cache: 'gradle'     # Automatic caching of gradle caches, wrappers, and metadata
 
-      # Secondary cache step to make absolutely sure build caches persist across runner instances
-      - name: Cache Build Cache Directory
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-            .gradle/configuration-cache
-          key: ${{ runner.os }}-gradle-build-cache-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties', '**/libs.versions.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-build-cache-
+      # Automatically regenerate the Gradle Wrapper to prevent any "corrupt jarfile" errors caused by Git text conversions
+      - name: Regenerate Gradle Wrapper
+        run: |
+          gradle wrapper
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
 
       - name: Grant Execute Permission to Gradle
         run: chmod +x gradlew || true # Make sure gradle wrapper is executable if present
