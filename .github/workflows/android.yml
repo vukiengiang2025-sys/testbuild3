@@ -15,6 +15,8 @@ jobs:
     env:
       # Optimizing JVM Memory allocation for GitHub Actions runner (typically 7GB RAM limit)
       GRADLE_OPTS: -Dorg.gradle.jvmargs="-Xmx3072m -XX:+UseParallelGC -XX:MaxMetaspaceSize=512m" -Dorg.gradle.workers.max=2
+      STORE_PASSWORD: ${{ secrets.STORE_PASSWORD || 'android' }}
+      KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || 'android' }}
 
     steps:
       - name: Checkout Repository
@@ -37,14 +39,20 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Decode Keystore from Base64
+      - name: Ensure Keystores Exist (Dynamic Auto-Generation)
         run: |
-          if [ -f debug.keystore.base64 ]; then
-            echo "Decoding debug.keystore.base64 to debug.keystore..."
-            base64 -d debug.keystore.base64 > debug.keystore
+          if [ ! -f debug.keystore ]; then
+            echo "debug.keystore not found. Generating a dynamic debug keystore..."
+            keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
           else
-            echo "Error: debug.keystore.base64 not found!"
-            exit 1
+            echo "debug.keystore already exists."
+          fi
+          
+          if [ ! -f my-upload-key.jks ]; then
+            echo "my-upload-key.jks not found. Generating a temporary upload key..."
+            keytool -genkey -v -keystore my-upload-key.jks -storepass "${STORE_PASSWORD}" -alias upload -keypass "${KEY_PASSWORD}" -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Release,O=Android,C=US"
+          else
+            echo "my-upload-key.jks already exists."
           fi
 
       - name: Grant Execute Permission to Gradle
