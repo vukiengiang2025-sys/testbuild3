@@ -48,6 +48,232 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
     val customPackageName = MutableStateFlow("com.example.builtapk")
     val customAppName = MutableStateFlow("My Built App")
 
+    // Gemini API states
+    private val _geminiApiKey = MutableStateFlow("")
+    val geminiApiKey: StateFlow<String> = _geminiApiKey.asStateFlow()
+
+    private val _aiFixResult = MutableStateFlow<com.example.compiler.GeminiFixResult?>(null)
+    val aiFixResult: StateFlow<com.example.compiler.GeminiFixResult?> = _aiFixResult.asStateFlow()
+
+    private val _isAiRunning = MutableStateFlow(false)
+    val isAiRunning: StateFlow<Boolean> = _isAiRunning.asStateFlow()
+
+    private val _aiError = MutableStateFlow<String?>(null)
+    val aiError: StateFlow<String?> = _aiError.asStateFlow()
+
+    // Gemini Auto-Fix Loop states
+    private val _isAutoFixing = MutableStateFlow(false)
+    val isAutoFixing: StateFlow<Boolean> = _isAutoFixing.asStateFlow()
+
+    private val _autoFixLogs = MutableStateFlow<List<String>>(emptyList())
+    val autoFixLogs: StateFlow<List<String>> = _autoFixLogs.asStateFlow()
+
+    private val _autoFixAttempt = MutableStateFlow(0)
+    val autoFixAttempt: StateFlow<Int> = _autoFixAttempt.asStateFlow()
+
+    fun loadApiKey(context: Context) {
+        val prefs = context.getSharedPreferences("gemini_prefs", Context.MODE_PRIVATE)
+        _geminiApiKey.value = prefs.getString("api_key", "") ?: ""
+    }
+
+    fun saveApiKey(context: Context, key: String) {
+        val prefs = context.getSharedPreferences("gemini_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putString("api_key", key).apply()
+        _geminiApiKey.value = key
+    }
+
+    fun clearAiFixResult() {
+        _aiFixResult.value = null
+        _aiError.value = null
+    }
+
+    fun runAiFix(context: Context, userPrompt: String) {
+        val current = _currentProject.value ?: return
+        val apiKey = _geminiApiKey.value
+        if (apiKey.isBlank()) {
+            _aiError.value = "Vui lòng nhập API Key cá nhân của bạn để sử dụng tính năng này."
+            return
+        }
+
+        _isAiRunning.value = true
+        _aiError.value = null
+        _aiFixResult.value = null
+
+        viewModelScope.launch {
+            val result = com.example.compiler.GeminiService.fixErrorsWithGemini(
+                apiKey = apiKey,
+                appName = customAppName.value,
+                packageName = customPackageName.value,
+                configJson = current.configJson,
+                codeKotlin = current.codeKotlin,
+                codeLayout = current.codeLayout,
+                buildLogs = _buildLogs.value,
+                userPrompt = userPrompt
+            )
+
+            if (result.success) {
+                _aiFixResult.value = result
+            } else {
+                _aiError.value = result.errorMessage
+            }
+            _isAiRunning.value = false
+        }
+    }
+
+    fun runAutoFixLoop(context: Context, userPrompt: String, maxAttempts: Int = 3) {
+        val current = _currentProject.value ?: return
+        val apiKey = _geminiApiKey.value
+        if (apiKey.isBlank()) {
+            _aiError.value = "Vui lòng nhập API Key cá nhân của bạn để sử dụng tính năng này."
+            return
+        }
+
+        _isAutoFixing.value = true
+        _autoFixLogs.value = emptyList()
+        _aiError.value = null
+
+        viewModelScope.launch {
+            val logs = mutableListOf<String>()
+            fun addLoopLog(msg: String) {
+                logs.add("[${getTimestamp()}] $msg")
+                _autoFixLogs.value = logs.toList()
+            }
+
+            addLoopLog("Khởi động Chế độ Sửa lỗi Tự động (Auto-Healing Loop) tối đa $maxAttempts lần.")
+            
+            var attempt = 1
+            var success = false
+            
+            var currentConfig = current.configJson
+            var currentKotlin = current.codeKotlin
+            var currentXml = current.codeLayout
+            
+            while (attempt <= maxAttempts && !success) {
+                _autoFixAttempt.value = attempt
+                addLoopLog("=== LẦN THỬ $attempt / $maxAttempts ===")
+                addLoopLog("Đang gửi yêu cầu và phân tích mã nguồn qua Gemini...")
+                
+                // Collect validation issues from schema as build errors/logs
+                val validationIssues = SchemaValidator.validate(currentConfig)
+                val errorMessages = validationIssues
+                    .filter { it.level == SchemaValidator.Issue.Level.ERROR }
+                    .map { "Lỗi schema: ${it.message}" }
+                
+                val checkLogs = mutableListOf<String>()
+                checkLogs.addAll(errorMessages)
+                if (checkLogs.isEmpty()) {
+                    checkLogs.add("Không tìm thấy lỗi tĩnh nhưng cần cải tiến hoặc sửa lỗi theo yêu cầu.")
+                }
+
+                val result = com.example.compiler.GeminiService.fixErrorsWithGemini(
+                    apiKey = apiKey,
+                    appName = customAppName.value,
+                    packageName = customPackageName.value,
+                    configJson = currentConfig,
+                    codeKotlin = currentKotlin,
+                    codeLayout = currentXml,
+                    buildLogs = checkLogs,
+                    userPrompt = if (attempt == 1) userPrompt else "$userPrompt (Chú ý sửa triệt để các lỗi biên dịch của lần thử trước)"
+                )
+
+                if (result.success) {
+                    val fixedKotlin = result.codeKotlin ?: ""
+                    val fixedLayout = result.codeLayout ?: ""
+                    val fixedConfig = result.configJson ?: ""
+                    val explanation = result.explanation ?: "Đã cập nhật mã nguồn."
+
+                    addLoopLog("Nhận phản hồi sửa đổi từ AI thành công.")
+                    addLoopLog("Giải thích từ AI: $explanation")
+                    
+                    addLoopLog("Đang chạy kiểm định tĩnh trên mã nguồn mới...")
+                    
+                    val newIssues = SchemaValidator.validate(fixedConfig)
+                    val newErrors = newIssues.filter { it.level == SchemaValidator.Issue.Level.ERROR }
+                    
+                    var isJsonValid = true
+                    try {
+                        org.json.JSONObject(fixedConfig)
+                    } catch (e: Exception) {
+                        isJsonValid = false
+                    }
+
+                    if (!isJsonValid) {
+                        addLoopLog("❌ Kiểm định thất bại: Cú pháp JSON bị hỏng.")
+                        currentConfig = fixedConfig
+                        currentKotlin = fixedKotlin
+                        currentXml = fixedLayout
+                        attempt++
+                    } else if (newErrors.isNotEmpty()) {
+                        addLoopLog("❌ Kiểm định thất bại: Phát hiện ${newErrors.size} lỗi cấu trúc mới:")
+                        newErrors.forEach { addLoopLog("   - ${it.message}") }
+                        currentConfig = fixedConfig
+                        currentKotlin = fixedKotlin
+                        currentXml = fixedLayout
+                        attempt++
+                    } else {
+                        addLoopLog("✓ Kiểm định tĩnh hoàn hảo! Không còn lỗi cấu trúc.")
+                        addLoopLog("Đang thử nghiệm tạo gói cài đặt APK...")
+                        
+                        updateCurrentProject(
+                            configJson = fixedConfig,
+                            codeKotlin = fixedKotlin,
+                            codeLayout = fixedLayout,
+                            appName = customAppName.value,
+                            packageName = customPackageName.value
+                        )
+                        
+                        val tempProject = _currentProject.value
+                        if (tempProject != null) {
+                            val apk = withContext(Dispatchers.IO) {
+                                ApkBuilderEngine.buildApk(
+                                    context = context,
+                                    project = tempProject,
+                                    customPackageName = customPackageName.value,
+                                    customAppName = customAppName.value,
+                                    onProgress = { /* silent */ }
+                                )
+                            }
+                            if (apk != null && apk.exists()) {
+                                addLoopLog("🎉 BIÊN DỊCH APK THÀNH CÔNG!")
+                                _builtApkFile.value = apk
+                                success = true
+                            } else {
+                                addLoopLog("❌ Lỗi: Tiến trình gộp APK thất bại.")
+                                attempt++
+                            }
+                        } else {
+                            attempt++
+                        }
+                    }
+                } else {
+                    addLoopLog("❌ Lỗi API Gemini: ${result.errorMessage}")
+                    attempt++
+                }
+                delay(1200)
+            }
+
+            if (success) {
+                addLoopLog("✨ HOÀN THÀNH: Ứng dụng đã được sửa lỗi hoàn toàn và đóng gói thành công!")
+                Toast.makeText(context, "Sửa lỗi tự động hoàn hảo!", Toast.LENGTH_SHORT).show()
+            } else {
+                addLoopLog("⚠️ ĐẠT GIỚI HẠN LẦN THỬ: Sửa lỗi tự động kết thúc nhưng chưa hoàn toàn thành công.")
+                Toast.makeText(context, "Quá trình sửa lỗi tự động kết thúc với một số cảnh báo.", Toast.LENGTH_SHORT).show()
+            }
+            _isAutoFixing.value = false
+        }
+    }
+
+    fun applyAiFix(fixedKotlin: String, fixedLayout: String, fixedConfig: String) {
+        updateCurrentProject(
+            configJson = fixedConfig,
+            codeKotlin = fixedKotlin,
+            codeLayout = fixedLayout,
+            appName = customAppName.value,
+            packageName = customPackageName.value
+        )
+        _aiFixResult.value = null
+    }
+
     fun selectProject(project: Project) {
         _currentProject.value = project
         customPackageName.value = project.packageName

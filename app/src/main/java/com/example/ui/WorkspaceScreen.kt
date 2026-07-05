@@ -1,5 +1,7 @@
 package com.example.ui
 
+import android.content.Intent
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -57,6 +59,17 @@ fun WorkspaceScreen(
     var configText by remember(project?.id) { mutableStateOf(project?.configJson ?: "") }
     var kotlinText by remember(project?.id) { mutableStateOf(project?.codeKotlin ?: "") }
     var xmlText by remember(project?.id) { mutableStateOf(project?.codeLayout ?: "") }
+    
+    LaunchedEffect(Unit) {
+        viewModel.loadApiKey(context)
+    }
+
+    LaunchedEffect(project) {
+        val cur = project ?: return@LaunchedEffect
+        if (cur.configJson != configText) configText = cur.configJson
+        if (cur.codeKotlin != kotlinText) kotlinText = cur.codeKotlin
+        if (cur.codeLayout != xmlText) xmlText = cur.codeLayout
+    }
     
     val currentAppName by viewModel.customAppName.collectAsState()
     val currentPkgName by viewModel.customPackageName.collectAsState()
@@ -389,6 +402,18 @@ fun WorkspaceScreen(
                     val builtApk by viewModel.builtApkFile.collectAsState()
                     var isArchExpanded by remember { mutableStateOf(false) }
 
+                    val geminiApiKey by viewModel.geminiApiKey.collectAsState()
+                    val aiFixResult by viewModel.aiFixResult.collectAsState()
+                    val isAiRunning by viewModel.isAiRunning.collectAsState()
+                    val aiError by viewModel.aiError.collectAsState()
+                    val isAutoFixing by viewModel.isAutoFixing.collectAsState()
+                    val autoFixLogs by viewModel.autoFixLogs.collectAsState()
+                    val autoFixAttempt by viewModel.autoFixAttempt.collectAsState()
+                    var aiPromptInput by remember { mutableStateOf("") }
+                    var tempApiKey by remember { mutableStateOf("") }
+                    var showApiKeyInput by remember { mutableStateOf(false) }
+                    var isKeyVisible by remember { mutableStateOf(false) }
+
                     val scrollState = rememberScrollState()
                     Column(
                         modifier = Modifier
@@ -402,6 +427,341 @@ fun WorkspaceScreen(
                             isBuilding = isBuilding,
                             builtApkFileExists = builtApk != null && builtApk!!.exists()
                         )
+
+                        // AI ASSISTANT PANEL
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF1B1A2B)),
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .border(1.dp, Color(0xFF9C27B0).copy(alpha = 0.4f), RoundedCornerShape(16.dp))
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.AutoAwesome,
+                                        contentDescription = "AI Assistant",
+                                        tint = Color(0xFFE040FB),
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "TRỢ LÝ SỬA LỖI AI (GEMINI)",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFFE040FB),
+                                        letterSpacing = 0.5.sp
+                                    )
+                                    Spacer(modifier = Modifier.weight(1f))
+                                    if (geminiApiKey.isNotEmpty()) {
+                                        TextButton(
+                                            onClick = { 
+                                                tempApiKey = geminiApiKey
+                                                showApiKeyInput = !showApiKeyInput 
+                                            }
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(Icons.Rounded.Settings, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color.LightGray)
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text(if (showApiKeyInput) "Đóng" else "Cài đặt Key", color = Color.LightGray, fontSize = 11.sp)
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                if (geminiApiKey.isEmpty() || showApiKeyInput) {
+                                    Column(
+                                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(
+                                            text = "Nhập Gemini API Key cá nhân của bạn để sử dụng AI sửa lỗi và cải tiến ứng dụng thông minh. Key của bạn sẽ được lưu an toàn tại bộ nhớ đệm thiết bị.",
+                                            fontSize = 12.sp,
+                                            color = Color.LightGray
+                                        )
+                                        
+                                        OutlinedTextField(
+                                            value = tempApiKey,
+                                            onValueChange = { tempApiKey = it },
+                                            label = { Text("Gemini API Key của bạn", color = Color.Gray) },
+                                            singleLine = true,
+                                            visualTransformation = if (isKeyVisible) androidx.compose.ui.text.input.VisualTransformation.None else androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                                            trailingIcon = {
+                                                IconButton(onClick = { isKeyVisible = !isKeyVisible }) {
+                                                    Icon(
+                                                        imageVector = if (isKeyVisible) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+                                                        contentDescription = null,
+                                                        tint = Color.Gray
+                                                    )
+                                                }
+                                            },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            colors = OutlinedTextFieldDefaults.colors(
+                                                focusedTextColor = Color.White,
+                                                unfocusedTextColor = Color.White,
+                                                focusedBorderColor = Color(0xFFE040FB),
+                                                unfocusedBorderColor = Color.Gray.copy(alpha = 0.4f)
+                                            )
+                                        )
+
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = "Lấy Key miễn phí tại Google AI Studio",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF00E5FF),
+                                                modifier = Modifier.clickable {
+                                                    try {
+                                                        val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://aistudio.google.com/app/apikey"))
+                                                        context.startActivity(intent)
+                                                    } catch (e: Exception) {}
+                                                }
+                                            )
+
+                                            Button(
+                                                onClick = {
+                                                    viewModel.saveApiKey(context, tempApiKey.trim())
+                                                    showApiKeyInput = false
+                                                    Toast.makeText(context, "Đã lưu API Key thành công!", Toast.LENGTH_SHORT).show()
+                                                },
+                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE040FB)),
+                                                shape = RoundedCornerShape(8.dp)
+                                            ) {
+                                                Text("Lưu Key", fontWeight = FontWeight.Bold, color = Color.White)
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    // Main AI controls when Key is ready
+                                    Column(
+                                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(
+                                            text = "Hệ thống AI sẽ gửi mã nguồn hiện tại, bố cục giao diện cùng nhật ký lỗi biên dịch (nếu có) lên Gemini để tự động phân tích và khắc phục toàn bộ lỗi.",
+                                            fontSize = 12.sp,
+                                            color = Color.LightGray
+                                        )
+
+                                        OutlinedTextField(
+                                            value = aiPromptInput,
+                                            onValueChange = { aiPromptInput = it },
+                                            placeholder = { Text("Mô tả lỗi hoặc yêu cầu AI bổ sung tính năng (tùy chọn)...", color = Color.Gray) },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            minLines = 2,
+                                            maxLines = 4,
+                                            colors = OutlinedTextFieldDefaults.colors(
+                                                focusedTextColor = Color.White,
+                                                unfocusedTextColor = Color.White,
+                                                focusedBorderColor = Color(0xFFE040FB),
+                                                unfocusedBorderColor = Color.Gray.copy(alpha = 0.3f)
+                                            )
+                                        )
+
+                                         if (isAiRunning) {
+                                             Column(
+                                                 modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                                                 horizontalAlignment = Alignment.CenterHorizontally,
+                                                 verticalArrangement = Arrangement.spacedBy(8.dp)
+                                             ) {
+                                                 CircularProgressIndicator(color = Color(0xFFE040FB), modifier = Modifier.size(28.dp))
+                                                 Text(
+                                                     text = "Gemini đang chẩn đoán & sửa lỗi mã nguồn của bạn...",
+                                                     color = Color(0xFFE040FB),
+                                                     fontSize = 12.sp,
+                                                     fontWeight = FontWeight.Bold,
+                                                     textAlign = TextAlign.Center
+                                                 )
+                                             }
+                                         } else if (isAutoFixing) {
+                                             Column(
+                                                 modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                                                 horizontalAlignment = Alignment.CenterHorizontally,
+                                                 verticalArrangement = Arrangement.spacedBy(8.dp)
+                                             ) {
+                                                 CircularProgressIndicator(color = Color(0xFF00E5FF), modifier = Modifier.size(28.dp))
+                                                 Text(
+                                                     text = "ĐANG TỰ ĐỘNG SỬA & BIÊN DỊCH (Lần thử $autoFixAttempt/3)...",
+                                                     color = Color(0xFF00E5FF),
+                                                     fontSize = 12.sp,
+                                                     fontWeight = FontWeight.Bold,
+                                                     textAlign = TextAlign.Center
+                                                 )
+                                             }
+                                         } else {
+                                             Row(
+                                                 modifier = Modifier.fillMaxWidth(),
+                                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                             ) {
+                                                 Button(
+                                                     onClick = {
+                                                         viewModel.runAiFix(context, aiPromptInput)
+                                                     },
+                                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF9C27B0), contentColor = Color.White),
+                                                     shape = RoundedCornerShape(10.dp),
+                                                     modifier = Modifier.weight(1f)
+                                                 ) {
+                                                     Icon(Icons.Rounded.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                     Spacer(modifier = Modifier.width(6.dp))
+                                                     Text("Sửa Lỗi 1 Lần", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                                 }
+
+                                                 Button(
+                                                     onClick = {
+                                                         viewModel.runAutoFixLoop(context, aiPromptInput, maxAttempts = 3)
+                                                     },
+                                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE040FB), contentColor = Color.White),
+                                                     shape = RoundedCornerShape(10.dp),
+                                                     modifier = Modifier.weight(1.2f)
+                                                 ) {
+                                                     Icon(Icons.Rounded.Loop, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                     Spacer(modifier = Modifier.width(6.dp))
+                                                     Text("Sửa Lặp Tự Động (Loop)", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                                 }
+                                             }
+                                         }
+
+                                         if (autoFixLogs.isNotEmpty()) {
+                                             Spacer(modifier = Modifier.height(10.dp))
+                                             Text(
+                                                 text = "NHẬT KÝ SỬA LỖI TỰ ĐỘNG (HEALING LOGS):",
+                                                 color = Color(0xFF00E5FF),
+                                                 fontSize = 11.sp,
+                                                 fontWeight = FontWeight.Bold
+                                             )
+                                             Card(
+                                                 colors = CardDefaults.cardColors(containerColor = Color(0xFF0A0A14)),
+                                                 shape = RoundedCornerShape(8.dp),
+                                                 modifier = Modifier
+                                                     .fillMaxWidth()
+                                                     .heightIn(max = 160.dp)
+                                                     .border(1.dp, Color(0xFF00E5FF).copy(alpha = 0.2f), RoundedCornerShape(8.dp))
+                                             ) {
+                                                 val logScrollState = rememberScrollState()
+                                                 LaunchedEffect(autoFixLogs.size) {
+                                                     logScrollState.animateScrollTo(logScrollState.maxValue)
+                                                 }
+                                                 Column(
+                                                     modifier = Modifier
+                                                         .fillMaxWidth()
+                                                         .verticalScroll(logScrollState)
+                                                         .padding(10.dp)
+                                                 ) {
+                                                     autoFixLogs.forEach { log ->
+                                                         val color = when {
+                                                             log.contains("🎉") || log.contains("✓") -> Color(0xFF00FF88)
+                                                             log.contains("❌") -> Color(0xFFFF8A80)
+                                                             log.contains("===") -> Color(0xFFE040FB)
+                                                             else -> Color.LightGray
+                                                         }
+                                                         Text(
+                                                             text = log,
+                                                             color = color,
+                                                             fontSize = 11.sp,
+                                                             fontFamily = FontFamily.Monospace,
+                                                             modifier = Modifier.padding(vertical = 2.dp)
+                                                         )
+                                                     }
+                                                 }
+                                             }
+                                         }
+
+                                        // Display AI Error if any
+                                        if (aiError != null) {
+                                            Card(
+                                                colors = CardDefaults.cardColors(containerColor = Color(0xFF33141C)),
+                                                shape = RoundedCornerShape(8.dp),
+                                                modifier = Modifier.fillMaxWidth().border(1.dp, Color.Red.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                                            ) {
+                                                Text(
+                                                    text = "Lỗi AI: $aiError",
+                                                    color = Color(0xFFFF8A80),
+                                                    fontSize = 11.sp,
+                                                    modifier = Modifier.padding(10.dp)
+                                                )
+                                            }
+                                        }
+
+                                        // Display AI Success / Fix Result
+                                        if (aiFixResult != null) {
+                                            Card(
+                                                colors = CardDefaults.cardColors(containerColor = Color(0xFF13221C)),
+                                                shape = RoundedCornerShape(12.dp),
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .border(1.dp, Color(0xFF00FF88).copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                                            ) {
+                                                Column(modifier = Modifier.padding(14.dp)) {
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        Icon(Icons.Rounded.AutoAwesome, contentDescription = null, tint = Color(0xFF00FF88))
+                                                        Spacer(modifier = Modifier.width(6.dp))
+                                                        Text(
+                                                            text = "Đã Khắc Phục Thành Công!",
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = Color(0xFF00FF88),
+                                                            fontSize = 13.sp
+                                                        )
+                                                    }
+
+                                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                                    Text(
+                                                        text = aiFixResult!!.explanation ?: "",
+                                                        color = Color(0xFFE0F2F1),
+                                                        fontSize = 12.sp,
+                                                        lineHeight = 16.sp
+                                                    )
+
+                                                    Spacer(modifier = Modifier.height(14.dp))
+
+                                                    Row(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                                    ) {
+                                                        OutlinedButton(
+                                                            onClick = { viewModel.clearAiFixResult() },
+                                                            modifier = Modifier.weight(1f),
+                                                            shape = RoundedCornerShape(8.dp),
+                                                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Gray)
+                                                        ) {
+                                                            Text("Bỏ qua", fontSize = 13.sp)
+                                                        }
+
+                                                        Button(
+                                                            onClick = {
+                                                                val res = aiFixResult!!
+                                                                viewModel.applyAiFix(
+                                                                    fixedKotlin = res.codeKotlin ?: "",
+                                                                    fixedLayout = res.codeLayout ?: "",
+                                                                    fixedConfig = res.configJson ?: ""
+                                                                )
+                                                                // Clear inputs and rebuild immediately
+                                                                aiPromptInput = ""
+                                                                viewModel.startBuild(context)
+                                                            },
+                                                            modifier = Modifier.weight(1.5f),
+                                                            shape = RoundedCornerShape(8.dp),
+                                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00FF88), contentColor = Color.Black)
+                                                        ) {
+                                                            Text("Áp Dụng & Build Lại", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
 
                         // System Architecture Insights (Expandable Panel)
                         Card(

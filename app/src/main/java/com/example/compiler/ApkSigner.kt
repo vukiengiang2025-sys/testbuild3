@@ -82,7 +82,9 @@ object ApkSigner {
                     val name = entry.name
                     // Skip existing signature files
                     if (!name.startsWith("META-INF/")) {
-                        val newEntry = ZipEntry(name)
+                        val newEntry = ZipEntry(name).apply {
+                            method = ZipEntry.DEFLATED
+                        }
                         zos.putNextEntry(newEntry)
 
                         val buffer = ByteArray(4096)
@@ -215,6 +217,7 @@ object ApkSigner {
 
         class Element(val tag: Byte, val content: ByteArray) {
             fun encode(): ByteArray {
+                if (tag == 0.toByte()) return content
                 val lenBytes = encodeLength(content.size)
                 val result = ByteArray(1 + lenBytes.size + content.size)
                 result[0] = tag
@@ -226,7 +229,7 @@ object ApkSigner {
 
         fun sequence(vararg elements: Element) = Element(SEQUENCE, concat(elements.map { it.encode() }))
         fun set(vararg elements: Element) = Element(SET, concat(elements.map { it.encode() }))
-        fun raw(bytes: ByteArray) = Element(SEQUENCE, bytes) // Special fallback when we have already DER encoded sub-sequence
+        fun raw(bytes: ByteArray) = Element(0.toByte(), bytes) // Special fallback when we have already DER encoded sub-sequence
         
         fun integer(value: Int): Element {
             val bytes = java.math.BigInteger.valueOf(value.toLong()).toByteArray()

@@ -160,9 +160,6 @@ object ApkBuilderEngine {
                         
                         // Skip any existing signatures in the template
                         if (!name.startsWith("META-INF/")) {
-                            val newEntry = ZipEntry(name)
-                            zos.putNextEntry(newEntry)
-
                             val shouldPatch = name == "assets/config.json" ||
                                               name == "assets/is_built_app.txt" ||
                                               name == "assets/source_code/MainActivity.kt" ||
@@ -170,6 +167,8 @@ object ApkBuilderEngine {
                                               name == "AndroidManifest.xml" ||
                                               name == "resources.arsc" ||
                                               name.endsWith(".dex")
+
+                            val originalMethod = entry.method
 
                             if (shouldPatch) {
                                 // Buffer in RAM only the small metadata files that require patching
@@ -215,9 +214,19 @@ object ApkBuilderEngine {
                                         }
                                     }
                                 }
+
+                                val newEntry = ZipEntry(name).apply {
+                                    method = ZipEntry.DEFLATED
+                                }
+                                zos.putNextEntry(newEntry)
                                 zos.write(entryData)
                             } else {
                                 // Stream non-patched resources directly to avoid bloating memory (O(1) memory complexity)
+                                val newEntry = ZipEntry(name).apply {
+                                    method = ZipEntry.DEFLATED
+                                }
+                                zos.putNextEntry(newEntry)
+
                                 val buffer = ByteArray(4096)
                                 var len: Int
                                 while (zis.read(buffer).also { len = it } > 0) {
