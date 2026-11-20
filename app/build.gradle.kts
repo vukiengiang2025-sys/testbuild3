@@ -47,7 +47,7 @@ android {
       signingConfig = signingConfigs.getByName("release")
     }
     debug {
-      signingConfig = signingConfigs.getByName("debugConfig")
+      // [apk-doctor] vo hieu hoa: keystore 'debugConfig' khong ton tai
     }
   }
   compileOptions {
